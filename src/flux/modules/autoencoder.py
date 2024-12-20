@@ -89,8 +89,8 @@ class Downsample(nn.Module):
         self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=2, padding=0)
 
     def forward(self, x: Tensor):
-        pad = (0, 1, 0, 1)
-        x = nn.functional.pad(x, pad, mode="constant", value=0)
+        pad = (0, 1, 0, 1)  # 对应于 (left, right, top, bottom)
+        x = nn.functional.pad(x, pad, mode="constant", value=0)  # 手动添加非对称padding，左0右1上0下1
         x = self.conv(x)
         return x
 
@@ -101,7 +101,7 @@ class Upsample(nn.Module):
         self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x: Tensor):
-        x = nn.functional.interpolate(x, scale_factor=2.0, mode="nearest")
+        x = nn.functional.interpolate(x, scale_factor=2.0, mode="nearest")  # 使用最近邻插值法进行上采样，cale_factor=2.0表示尺寸翻倍
         x = self.conv(x)
         return x
 
@@ -259,18 +259,18 @@ class Decoder(nn.Module):
         return h
 
 
-class DiagonalGaussian(nn.Module):
+class DiagonalGaussian(nn.Module):  # 基于重参数化技巧的高斯分布
     def __init__(self, sample: bool = True, chunk_dim: int = 1):
         super().__init__()
-        self.sample = sample
+        self.sample = sample  # 否是采样
         self.chunk_dim = chunk_dim
 
     def forward(self, z: Tensor) -> Tensor:
-        mean, logvar = torch.chunk(z, 2, dim=self.chunk_dim)
+        mean, logvar = torch.chunk(z, 2, dim=self.chunk_dim)  # z应该同时包含高斯分布的均值和对数方差，将其拆分开
         if self.sample:
-            std = torch.exp(0.5 * logvar)
-            return mean + std * torch.randn_like(mean)
-        else:
+            std = torch.exp(0.5 * logvar)  # 将对数方差转换为均方差
+            return mean + std * torch.randn_like(mean)  # 基于重参数技巧采样
+        else:  # 如果不采样直接返回均值
             return mean
 
 
@@ -284,7 +284,7 @@ class AutoEncoder(nn.Module):
             ch_mult=params.ch_mult,
             num_res_blocks=params.num_res_blocks,
             z_channels=params.z_channels,
-        )
+        )  # Uner风格的编码器
         self.decoder = Decoder(
             resolution=params.resolution,
             in_channels=params.in_channels,
@@ -293,20 +293,20 @@ class AutoEncoder(nn.Module):
             ch_mult=params.ch_mult,
             num_res_blocks=params.num_res_blocks,
             z_channels=params.z_channels,
-        )
-        self.reg = DiagonalGaussian()
+        )  # Uner风格的解码器
+        self.reg = DiagonalGaussian()  # 重参数化采样层
 
-        self.scale_factor = params.scale_factor
-        self.shift_factor = params.shift_factor
+        self.scale_factor = params.scale_factor  # 缩放系数
+        self.shift_factor = params.shift_factor  # 偏移系数
 
     def encode(self, x: Tensor) -> Tensor:
-        z = self.reg(self.encoder(x))
-        z = self.scale_factor * (z - self.shift_factor)
+        z = self.reg(self.encoder(x))  # 编码器输出z，然后通过重参数化技巧从高斯分布中采样
+        z = self.scale_factor * (z - self.shift_factor)  # 对z进行缩放和平移
         return z
 
     def decode(self, z: Tensor) -> Tensor:
-        z = z / self.scale_factor + self.shift_factor
-        return self.decoder(z)
+        z = z / self.scale_factor + self.shift_factor  # 对z进行反向缩放和平移
+        return self.decoder(z)  # 解码器输出解码后的图像
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.decode(self.encode(x))
+        return self.decode(self.encode(x))  # 编码器输出z，然后通过解码器得到解码后的图像

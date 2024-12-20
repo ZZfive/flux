@@ -46,12 +46,12 @@ class Flux(nn.Module):
             raise ValueError(
                 f"Hidden size {params.hidden_size} must be divisible by num_heads {params.num_heads}"
             )
-        pe_dim = params.hidden_size // params.num_heads
-        if sum(params.axes_dim) != pe_dim:
+        pe_dim = params.hidden_size // params.num_heads  # 位置编码的总维度与当个自注意力头的维度相同
+        if sum(params.axes_dim) != pe_dim:  # 各个轴的维度之后应该等于位置编码的总维度
             raise ValueError(f"Got {params.axes_dim} but expected positional dim {pe_dim}")
         self.hidden_size = params.hidden_size
         self.num_heads = params.num_heads
-        self.pe_embedder = EmbedND(dim=pe_dim, theta=params.theta, axes_dim=params.axes_dim)
+        self.pe_embedder = EmbedND(dim=pe_dim, theta=params.theta, axes_dim=params.axes_dim)  # 多维旋转位置编码
         self.img_in = nn.Linear(self.in_channels, self.hidden_size, bias=True)
         self.time_in = MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size)
         self.vector_in = MLPEmbedder(params.vec_in_dim, self.hidden_size)
@@ -70,14 +70,14 @@ class Flux(nn.Module):
                 )
                 for _ in range(params.depth)
             ]
-        )
+        )  # 双流注意力模块堆
 
         self.single_blocks = nn.ModuleList(
             [
                 SingleStreamBlock(self.hidden_size, self.num_heads, mlp_ratio=params.mlp_ratio)
                 for _ in range(params.depth_single_blocks)
             ]
-        )
+        )  # 单流注意力模块堆
 
         self.final_layer = LastLayer(self.hidden_size, 1, self.out_channels)
 
@@ -96,16 +96,16 @@ class Flux(nn.Module):
 
         # running on sequences img
         img = self.img_in(img)
-        vec = self.time_in(timestep_embedding(timesteps, 256))
+        vec = self.time_in(timestep_embedding(timesteps, 256))  # 时间编码
         if self.params.guidance_embed:
             if guidance is None:
                 raise ValueError("Didn't get guidance strength for guidance distilled model.")
-            vec = vec + self.guidance_in(timestep_embedding(guidance, 256))
+            vec = vec + self.guidance_in(timestep_embedding(guidance, 256))  # 叠加引导编码
         vec = vec + self.vector_in(y)
         txt = self.txt_in(txt)
 
         ids = torch.cat((txt_ids, img_ids), dim=1)
-        pe = self.pe_embedder(ids)
+        pe = self.pe_embedder(ids)  # 位置编码
 
         for block in self.double_blocks:
             img, txt = block(img=img, txt=txt, vec=vec, pe=pe)
@@ -113,7 +113,7 @@ class Flux(nn.Module):
         img = torch.cat((txt, img), 1)
         for block in self.single_blocks:
             img = block(img, vec=vec, pe=pe)
-        img = img[:, txt.shape[1] :, ...]
+        img = img[:, txt.shape[1] :, ...]  # 只使用后半段的图片ids序列
 
         img = self.final_layer(img, vec)  # (N, T, patch_size ** 2 * out_channels)
         return img
@@ -135,7 +135,7 @@ class FluxLoraWrapper(Flux):
             self,
             max_rank=lora_rank,
             scale=lora_scale,
-        )
+        )  # 将模型中的所有线性层替换为Lora线性层
 
     def set_lora_scale(self, scale: float) -> None:
         for module in self.modules():

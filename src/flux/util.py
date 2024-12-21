@@ -326,28 +326,28 @@ def load_flow_model(
         and configs[name].repo_flow is not None
         and hf_download
     ):
-        ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow)
+        ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow)  # 从huggingface下载模型权重
 
     with torch.device("meta" if ckpt_path is not None else device):
         if lora_path is not None:
-            model = FluxLoraWrapper(params=configs[name].params).to(torch.bfloat16)
+            model = FluxLoraWrapper(params=configs[name].params).to(torch.bfloat16)  # 创建FluxLoraWrapper模型
         else:
-            model = Flux(configs[name].params).to(torch.bfloat16)
+            model = Flux(configs[name].params).to(torch.bfloat16)  # 创建Flux模型
 
     if ckpt_path is not None:
         print("Loading checkpoint")
         # load_sft doesn't support torch.device
         sd = load_sft(ckpt_path, device=str(device))
-        sd = optionally_expand_state_dict(model, sd)
-        missing, unexpected = model.load_state_dict(sd, strict=False, assign=True)
+        sd = optionally_expand_state_dict(model, sd)  # 处理模型权重加载时形状不匹配问题，更新state_dict
+        missing, unexpected = model.load_state_dict(sd, strict=False, assign=True)  # 加载state_dict
         if verbose:
             print_load_warning(missing, unexpected)
 
     if configs[name].lora_path is not None:
         print("Loading LoRA")
-        lora_sd = load_sft(configs[name].lora_path, device=str(device))
+        lora_sd = load_sft(configs[name].lora_path, device=str(device))  # 读取lora权重
         # loading the lora params + overwriting scale values in the norms
-        missing, unexpected = model.load_state_dict(lora_sd, strict=False, assign=True)
+        missing, unexpected = model.load_state_dict(lora_sd, strict=False, assign=True)  # 加载lora权重
         if verbose:
             print_load_warning(missing, unexpected)
     return model
@@ -384,21 +384,21 @@ def load_ae(name: str, device: str | torch.device = "cuda", hf_download: bool = 
     return ae
 
 
-def optionally_expand_state_dict(model: torch.nn.Module, state_dict: dict) -> dict:
+def optionally_expand_state_dict(model: torch.nn.Module, state_dict: dict) -> dict:  # 可处理模型权重加载时形状不匹配问题，更新state_dict
     """
     Optionally expand the state dict to match the model's parameters shapes.
     """
-    for name, param in model.named_parameters():
-        if name in state_dict:
-            if state_dict[name].shape != param.shape:
+    for name, param in model.named_parameters():  # 遍历模型所有参数
+        if name in state_dict:  # 对state_dict中存在的参数进行处理
+            if state_dict[name].shape != param.shape:  # 如果参数形状不匹配
                 print(
                     f"Expanding '{name}' with shape {state_dict[name].shape} to model parameter with shape {param.shape}."
                 )
                 # expand with zeros:
-                expanded_state_dict_weight = torch.zeros_like(param, device=state_dict[name].device)
-                slices = tuple(slice(0, dim) for dim in state_dict[name].shape)
-                expanded_state_dict_weight[slices] = state_dict[name]
-                state_dict[name] = expanded_state_dict_weight
+                expanded_state_dict_weight = torch.zeros_like(param, device=state_dict[name].device)  # 创建与param形状相同的零张量
+                slices = tuple(slice(0, dim) for dim in state_dict[name].shape)  # 创建切片对象
+                expanded_state_dict_weight[slices] = state_dict[name]  # 将state_dict[name]的值赋值到expanded_state_dict_weight中
+                state_dict[name] = expanded_state_dict_weight  # 将expanded_state_dict_weight赋值回state_dict[name]
 
     return state_dict
 
@@ -407,8 +407,8 @@ class WatermarkEmbedder:
     def __init__(self, watermark):
         self.watermark = watermark
         self.num_bits = len(WATERMARK_BITS)
-        self.encoder = WatermarkEncoder()
-        self.encoder.set_watermark("bits", self.watermark)
+        self.encoder = WatermarkEncoder()  # 创建水印编码器
+        self.encoder.set_watermark("bits", self.watermark)  # 设置水印
 
     def __call__(self, image: torch.Tensor) -> torch.Tensor:
         """
@@ -420,23 +420,23 @@ class WatermarkEmbedder:
         Returns:
             same as input but watermarked
         """
-        image = 0.5 * image + 0.5
-        squeeze = len(image.shape) == 4
+        image = 0.5 * image + 0.5  # 归一化到[0,1]范围
+        squeeze = len(image.shape) == 4  # 判断是否为4维张量
         if squeeze:
-            image = image[None, ...]
+            image = image[None, ...]  # 如果为4维张量，则增加一个维度
         n = image.shape[0]
         image_np = rearrange((255 * image).detach().cpu(), "n b c h w -> (n b) h w c").numpy()[:, :, :, ::-1]
         # torch (b, c, h, w) in [0, 1] -> numpy (b, h, w, c) [0, 255]
         # watermarking libary expects input as cv2 BGR format
         for k in range(image_np.shape[0]):
-            image_np[k] = self.encoder.encode(image_np[k], "dwtDct")
+            image_np[k] = self.encoder.encode(image_np[k], "dwtDct")  # 使用dwtDct方法嵌入水印，不可见
         image = torch.from_numpy(rearrange(image_np[:, :, :, ::-1], "(n b) h w c -> n b c h w", n=n)).to(
             image.device
         )
-        image = torch.clamp(image / 255, min=0.0, max=1.0)
+        image = torch.clamp(image / 255, min=0.0, max=1.0)  # 将图像归一化到[0,1]范围
         if squeeze:
             image = image[0]
-        image = 2 * image - 1
+        image = 2 * image - 1  # 将图像归一化到[-1,1]范围
         return image
 
 

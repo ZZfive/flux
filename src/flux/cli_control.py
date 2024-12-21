@@ -195,7 +195,7 @@ def main(
     """
     nsfw_classifier = pipeline("image-classification", model="Falconsai/nsfw_image_detection", device=device)
 
-    assert name in [
+    assert name in [  # canny和depth两种控制方法又由模型全量微调和lora微调两种实现方式
         "flux-dev-canny",
         "flux-dev-depth",
         "flux-dev-canny-lora",
@@ -236,12 +236,13 @@ def main(
     if "lora" in name and lora_scale is not None:
         for _, module in model.named_modules():
             if hasattr(module, "set_scale"):
-                module.set_scale(lora_scale)
+                module.set_scale(lora_scale)  # 设置lora的scale
 
+    # 虽然是全量微调和lora微调另种方式，但是图片条件的编码器是相同的
     if name in ["flux-dev-depth", "flux-dev-depth-lora"]:
-        img_embedder = DepthImageEncoder(torch_device)
+        img_embedder = DepthImageEncoder(torch_device)  # 深度编码器
     elif name in ["flux-dev-canny", "flux-dev-canny-lora"]:
-        img_embedder = CannyImageEncoder(torch_device)
+        img_embedder = CannyImageEncoder(torch_device)  # 边缘编码器
     else:
         raise NotImplementedError()
 

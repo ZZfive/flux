@@ -138,7 +138,7 @@ def main(
         num_steps = 4 if name == "flux-schnell" else 50
 
     # allow for packing and conversion to latent space
-    height = 16 * (height // 16)
+    height = 16 * (height // 16)  # 将height和width都调整为16的倍数，因为最终一个patch的尺寸是原始尺寸的1/16
     width = 16 * (width // 16)
 
     output_name = os.path.join(output_dir, "img_{idx}.jpg")
@@ -185,7 +185,7 @@ def main(
             device=torch_device,
             dtype=torch.bfloat16,
             seed=opts.seed,
-        )
+        )  # 采样图片隐空间尺寸的噪声，就是初始的图片latent向量，shape为[1, 16, H/16, W/16]
         opts.seed = None
         if offload:
             ae = ae.cpu()
@@ -201,7 +201,7 @@ def main(
             model = model.to(torch_device)
 
         # denoise initial noise
-        x = denoise(model, **inp, timesteps=timesteps, guidance=opts.guidance)
+        x = denoise(model, **inp, timesteps=timesteps, guidance=opts.guidance)  # 去噪采样
 
         # offload model, load autoencoder to gpu
         if offload:
@@ -212,7 +212,7 @@ def main(
         # decode latents to pixel space
         x = unpack(x.float(), opts.height, opts.width)
         with torch.autocast(device_type=torch_device.type, dtype=torch.bfloat16):
-            x = ae.decode(x)
+            x = ae.decode(x)  # 将latent向量解码回像素空间
 
         if torch.cuda.is_available():
             torch.cuda.synchronize()
@@ -221,7 +221,7 @@ def main(
         fn = output_name.format(idx=idx)
         print(f"Done in {t1 - t0:.1f}s. Saving {fn}")
 
-        idx = save_image(nsfw_classifier, name, output_name, idx, x, add_sampling_metadata, prompt)
+        idx = save_image(nsfw_classifier, name, output_name, idx, x, add_sampling_metadata, prompt)  # 保存图片
 
         if loop:
             print("-" * 80)

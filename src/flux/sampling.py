@@ -20,8 +20,8 @@ def get_noise(
     device: torch.device,
     dtype: torch.dtype,
     seed: int,
-):
-    return torch.randn(
+):  #  采样图片隐空间尺寸的噪声
+    return torch.randn(  # 从标准正态分布中采样随机噪声
         num_samples,
         16,
         # allow for packing
@@ -29,44 +29,47 @@ def get_noise(
         2 * math.ceil(width / 16),
         device=device,
         dtype=dtype,
-        generator=torch.Generator(device=device).manual_seed(seed),
+        generator=torch.Generator(device=device).manual_seed(seed),  # 设置随机种子，保证可复现性
     )
 
 
+# 常规的数据准备函数
 def prepare(t5: HFEmbedder, clip: HFEmbedder, img: Tensor, prompt: str | list[str]) -> dict[str, Tensor]:
-    bs, c, h, w = img.shape
+    bs, c, h, w = img.shape  # 此处的img对应encoder编码后的隐空间向量
     if bs == 1 and not isinstance(prompt, str):
         bs = len(prompt)
-
-    img = rearrange(img, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)
+    # 图像重排和批次扩展
+    img = rearrange(img, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)  # [B, C, H, W] -> [B, H/2*W/2, C*2*2]
     if img.shape[0] == 1 and bs > 1:
         img = repeat(img, "1 ... -> bs ...", bs=bs)
 
+    # 生成图像多维位置ids
     img_ids = torch.zeros(h // 2, w // 2, 3)
     img_ids[..., 1] = img_ids[..., 1] + torch.arange(h // 2)[:, None]
     img_ids[..., 2] = img_ids[..., 2] + torch.arange(w // 2)[None, :]
-    img_ids = repeat(img_ids, "h w c -> b (h w) c", b=bs)
+    img_ids = repeat(img_ids, "h w c -> b (h w) c", b=bs)  # [H/2, W/2, 3] -> [B, H/2*W/2, 3]
 
     if isinstance(prompt, str):
         prompt = [prompt]
     txt = t5(prompt)
     if txt.shape[0] == 1 and bs > 1:
         txt = repeat(txt, "1 ... -> bs ...", bs=bs)
-    txt_ids = torch.zeros(bs, txt.shape[1], 3)
+    txt_ids = torch.zeros(bs, txt.shape[1], 3)  # 也是一个特征维度为3的位置ids，[B, T, 3]
 
     vec = clip(prompt)
     if vec.shape[0] == 1 and bs > 1:
         vec = repeat(vec, "1 ... -> bs ...", bs=bs)
 
     return {
-        "img": img,
-        "img_ids": img_ids.to(img.device),
-        "txt": txt.to(img.device),
-        "txt_ids": txt_ids.to(img.device),
-        "vec": vec.to(img.device),
+        "img": img,  # 重排后的图像张量
+        "img_ids": img_ids.to(img.device),  # 图像多维位置ids
+        "txt": txt.to(img.device),  # t5文本嵌入
+        "txt_ids": txt_ids.to(img.device),  # 文本位置ids
+        "vec": vec.to(img.device),  # clip文本向量
     }
 
 
+# 带控制图像条件的数据准备函数
 def prepare_control(
     t5: HFEmbedder,
     clip: HFEmbedder,
@@ -88,14 +91,14 @@ def prepare_control(
     img_cond = img_cond.resize((width, height), Image.LANCZOS)
     img_cond = np.array(img_cond)
     img_cond = torch.from_numpy(img_cond).float() / 127.5 - 1.0
-    img_cond = rearrange(img_cond, "h w c -> 1 c h w")
+    img_cond = rearrange(img_cond, "h w c -> 1 c h w") 
 
     with torch.no_grad():
         img_cond = encoder(img_cond)
-        img_cond = ae.encode(img_cond)
+        img_cond = ae.encode(img_cond)  # 编码后宽、高会压缩，通道数会增加， 记此时的尺寸为[B, C, H, W]，与输入的img尺寸一致
 
     img_cond = img_cond.to(torch.bfloat16)
-    img_cond = rearrange(img_cond, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)
+    img_cond = rearrange(img_cond, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)  # [B, C, H, W] -> [B, H/2*W/2, C*2*2]
     if img_cond.shape[0] == 1 and bs > 1:
         img_cond = repeat(img_cond, "1 ... -> bs ...", bs=bs)
 
@@ -104,6 +107,7 @@ def prepare_control(
     return return_dict
 
 
+# 用于fill的数据准备函数
 def prepare_fill(
     t5: HFEmbedder,
     clip: HFEmbedder,
@@ -121,27 +125,27 @@ def prepare_fill(
     img_cond = Image.open(img_cond_path).convert("RGB")
     img_cond = np.array(img_cond)
     img_cond = torch.from_numpy(img_cond).float() / 127.5 - 1.0
-    img_cond = rearrange(img_cond, "h w c -> 1 c h w")
+    img_cond = rearrange(img_cond, "h w c -> 1 c h w")  # [h, w, c] -> [1, c, h, w]
 
     mask = Image.open(mask_path).convert("L")
     mask = np.array(mask)
     mask = torch.from_numpy(mask).float() / 255.0
-    mask = rearrange(mask, "h w -> 1 1 h w")
+    mask = rearrange(mask, "h w -> 1 1 h w")  # [h, w] -> [1, 1, h, w]
 
     with torch.no_grad():
         img_cond = img_cond.to(img.device)
         mask = mask.to(img.device)
-        img_cond = img_cond * (1 - mask)
-        img_cond = ae.encode(img_cond)
-        mask = mask[:, 0, :, :]
+        img_cond = img_cond * (1 - mask)  # 将mask为0的区域保留，mask为1的区域置0
+        img_cond = ae.encode(img_cond)  # 编码后宽、高会压缩，通道数会增加， 记此时的尺寸为[B, C, H, W]，与输入的img尺寸一致
+        mask = mask[:, 0, :, :]  # 取第一个通道
         mask = mask.to(torch.bfloat16)
         mask = rearrange(
             mask,
             "b (h ph) (w pw) -> b (ph pw) h w",
             ph=8,
             pw=8,
-        )
-        mask = rearrange(mask, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)
+        )  # [B, 1, h, w] -> [B, 8*8, h/8, w/8]
+        mask = rearrange(mask, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)  # [B, 8*8, h/8, w/8] -> [B, h/16*w/16, 8*2*8*2]
         if mask.shape[0] == 1 and bs > 1:
             mask = repeat(mask, "1 ... -> bs ...", bs=bs)
 
@@ -150,13 +154,15 @@ def prepare_fill(
     if img_cond.shape[0] == 1 and bs > 1:
         img_cond = repeat(img_cond, "1 ... -> bs ...", bs=bs)
 
-    img_cond = torch.cat((img_cond, mask), dim=-1)
+    # 上述中h、w是原始图像像素空间中的尺寸，H、W是编码后的图片因向量尺寸，编码后缩放了8倍，所以h/16=H/2, w/16=W/2，可以在最后一维拼接
+    img_cond = torch.cat((img_cond, mask), dim=-1)  # 将图像和mask在最后一个维度拼接起来作为img_cond，[B, H/2*W/2, C*2*2+8*2*8*2]
 
     return_dict = prepare(t5, clip, img, prompt)
     return_dict["img_cond"] = img_cond.to(img.device)
     return return_dict
 
 
+# 用于redux的数据准备函数
 def prepare_redux(
     t5: HFEmbedder,
     clip: HFEmbedder,
@@ -189,7 +195,7 @@ def prepare_redux(
     if isinstance(prompt, str):
         prompt = [prompt]
     txt = t5(prompt)
-    txt = torch.cat((txt, img_cond.to(txt)), dim=-2)
+    txt = torch.cat((txt, img_cond.to(txt)), dim=-2)  # 将t5文本编码和图片条件img_cond在第二个维度拼接
     if txt.shape[0] == 1 and bs > 1:
         txt = repeat(txt, "1 ... -> bs ...", bs=bs)
     txt_ids = torch.zeros(bs, txt.shape[1], 3)
@@ -211,6 +217,7 @@ def time_shift(mu: float, sigma: float, t: Tensor):
     return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
 
 
+# 构建经过两个点(x1,y1)和(x2,y2)的线性函数
 def get_lin_function(
     x1: float = 256, y1: float = 0.5, x2: float = 4096, y2: float = 1.15
 ) -> Callable[[float], float]:
@@ -253,9 +260,9 @@ def denoise(
     img_cond: Tensor | None = None,
 ):
     # this is ignored for schnell
-    guidance_vec = torch.full((img.shape[0],), guidance, device=img.device, dtype=img.dtype)
+    guidance_vec = torch.full((img.shape[0],), guidance, device=img.device, dtype=img.dtype)  # 创建一个长度为batch size的一维张量，所有值都是guidance
     for t_curr, t_prev in zip(timesteps[:-1], timesteps[1:]):
-        t_vec = torch.full((img.shape[0],), t_curr, dtype=img.dtype, device=img.device)
+        t_vec = torch.full((img.shape[0],), t_curr, dtype=img.dtype, device=img.device)  # 创建一个长度为batch size的一维张量，所有值都是t_curr
         pred = model(
             img=torch.cat((img, img_cond), dim=-1) if img_cond is not None else img,
             img_ids=img_ids,
@@ -266,11 +273,12 @@ def denoise(
             guidance=guidance_vec,
         )
 
-        img = img + (t_prev - t_curr) * pred
+        img = img + (t_prev - t_curr) * pred  # 因为Flux是基于rectified flow训练的，更新时就以线性更新的，即新的图像值就是当前预测值和上一步图像值得插值
 
     return img
 
 
+# 将patchify拉直后的隐向量还原会encoder编码后的尺寸
 def unpack(x: Tensor, height: int, width: int) -> Tensor:
     return rearrange(
         x,

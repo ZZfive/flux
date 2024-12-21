@@ -88,7 +88,7 @@ class Flux(nn.Module):
         txt: Tensor,
         txt_ids: Tensor,
         timesteps: Tensor,
-        y: Tensor,
+        y: Tensor,  # vec
         guidance: Tensor | None = None,
     ) -> Tensor:
         if img.ndim != 3 or txt.ndim != 3:

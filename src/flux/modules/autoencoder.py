@@ -235,6 +235,9 @@ class Decoder(nn.Module):
         self.conv_out = nn.Conv2d(block_in, out_ch, kernel_size=3, stride=1, padding=1)
 
     def forward(self, z: Tensor) -> Tensor:
+        # get dtype for proper tracing
+        upscale_dtype = next(self.up.parameters()).dtype
+
         # z to block_in
         h = self.conv_in(z)
 
@@ -243,6 +246,8 @@ class Decoder(nn.Module):
         h = self.mid.attn_1(h)
         h = self.mid.block_2(h)
 
+        # cast to proper dtype
+        h = h.to(upscale_dtype)
         # upsampling
         for i_level in reversed(range(self.num_resolutions)):
             for i_block in range(self.num_res_blocks + 1):
@@ -275,8 +280,9 @@ class DiagonalGaussian(nn.Module):  # 基于重参数化技巧的高斯分布
 
 
 class AutoEncoder(nn.Module):
-    def __init__(self, params: AutoEncoderParams):
+    def __init__(self, params: AutoEncoderParams, sample_z: bool = False):
         super().__init__()
+        self.params = params
         self.encoder = Encoder(
             resolution=params.resolution,
             in_channels=params.in_channels,
@@ -294,7 +300,7 @@ class AutoEncoder(nn.Module):
             num_res_blocks=params.num_res_blocks,
             z_channels=params.z_channels,
         )  # Uner风格的解码器
-        self.reg = DiagonalGaussian()  # 重参数化采样层
+        self.reg = DiagonalGaussian(sample=sample_z)  # 重参数化采样层
 
         self.scale_factor = params.scale_factor  # 缩放系数
         self.shift_factor = params.shift_factor  # 偏移系数

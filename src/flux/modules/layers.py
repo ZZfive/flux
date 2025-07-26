@@ -209,11 +209,11 @@ class DoubleStreamBlock(nn.Module):
         attn = attention(q, k, v, pe=pe)  # 注意力计算  
         txt_attn, img_attn = attn[:, : txt.shape[1]], attn[:, txt.shape[1] :]  # 拆分出文本和图片的注意力结果
 
-        # calculate the img bloks
+        # calculate the img blocks
         img = img + img_mod1.gate * self.img_attn.proj(img_attn)  # 先单独使用图片自注意力模块中的投影层转换，再乘上图片调制项的门控系数，最后加上图片调制项的偏移量
         img = img + img_mod2.gate * self.img_mlp((1 + img_mod2.scale) * self.img_norm2(img) + img_mod2.shift)  # 与图片调制项中的第二组调制参数组合
 
-        # calculate the txt bloks
+        # calculate the txt blocks
         txt = txt + txt_mod1.gate * self.txt_attn.proj(txt_attn)
         txt = txt + txt_mod2.gate * self.txt_mlp((1 + txt_mod2.scale) * self.txt_norm2(txt) + txt_mod2.shift)
         return img, txt

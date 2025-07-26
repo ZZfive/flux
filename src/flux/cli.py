@@ -9,7 +9,15 @@ from fire import Fire
 from transformers import pipeline
 
 from flux.sampling import denoise, get_noise, get_schedule, prepare, unpack
-from flux.util import configs, load_ae, load_clip, load_flow_model, load_t5, save_image
+from flux.util import (
+    check_onnx_access_for_trt,
+    configs,
+    load_ae,
+    load_clip,
+    load_flow_model,
+    load_t5,
+    save_image,
+)
 
 NSFW_THRESHOLD = 0.85
 
@@ -46,7 +54,7 @@ def parse_prompt(options: SamplingOptions) -> SamplingOptions | None:
             options.width = 16 * (int(width) // 16)
             print(
                 f"Setting resolution to {options.width} x {options.height} "
-                f"({options.height *options.width/1e6:.2f}MP)"
+                f"({options.height * options.width / 1e6:.2f}MP)"
             )
         elif prompt.startswith("/h"):
             if prompt.count(" ") != 1:
@@ -56,7 +64,7 @@ def parse_prompt(options: SamplingOptions) -> SamplingOptions | None:
             options.height = 16 * (int(height) // 16)
             print(
                 f"Setting resolution to {options.width} x {options.height} "
-                f"({options.height *options.width/1e6:.2f}MP)"
+                f"({options.height * options.width / 1e6:.2f}MP)"
             )
         elif prompt.startswith("/g"):
             if prompt.count(" ") != 1:
@@ -104,10 +112,13 @@ def main(
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
     num_steps: int | None = None,
     loop: bool = False,
-    guidance: float = 3.5,
+    guidance: float = 2.5,
     offload: bool = False,
     output_dir: str = "output",
     add_sampling_metadata: bool = True,
+    trt: bool = False,
+    trt_transformer_precision: str = "bf16",
+    track_usage: bool = False,
 ):
     """
     Sample the flux model. Either interactively (set `--loop`) or run for a
@@ -126,7 +137,23 @@ def main(
         loop: start an interactive session and sample multiple times
         guidance: guidance value used for guidance distillation
         add_sampling_metadata: Add the prompt to the image Exif metadata
+        trt: use TensorRT backend for optimized inference
+        trt_transformer_precision: specify transformer precision for inference
+        track_usage: track usage of the model for licensing purposes
     """
+
+    prompt = prompt.split("|")
+    if len(prompt) == 1:
+        prompt = prompt[0]
+        additional_prompts = None
+    else:
+        additional_prompts = prompt[1:]
+        prompt = prompt[0]
+
+    assert not (
+        (additional_prompts is not None) and loop
+    ), "Do not provide additional prompts and set loop to True"
+
     nsfw_classifier = pipeline("image-classification", model="Falconsai/nsfw_image_detection", device=device)
 
     if name not in configs:
@@ -152,11 +179,44 @@ def main(
         else:
             idx = 0
 
-    # init all components
-    t5 = load_t5(torch_device, max_length=256 if name == "flux-schnell" else 512)
-    clip = load_clip(torch_device)
-    model = load_flow_model(name, device="cpu" if offload else torch_device)
-    ae = load_ae(name, device="cpu" if offload else torch_device)
+    if not trt:
+        t5 = load_t5(torch_device, max_length=256 if name == "flux-schnell" else 512)
+        clip = load_clip(torch_device)
+        model = load_flow_model(name, device="cpu" if offload else torch_device)
+        ae = load_ae(name, device="cpu" if offload else torch_device)
+    else:
+        # lazy import to make install optional
+        from flux.trt.trt_manager import ModuleName, TRTManager
+
+        # Check if we need ONNX model access (which requires authentication for FLUX models)
+        onnx_dir = check_onnx_access_for_trt(name, trt_transformer_precision)
+
+        trt_ctx_manager = TRTManager(
+            trt_transformer_precision=trt_transformer_precision,
+            trt_t5_precision=os.getenv("TRT_T5_PRECISION", "bf16"),
+        )
+        engines = trt_ctx_manager.load_engines(
+            model_name=name,
+            module_names={
+                ModuleName.CLIP,
+                ModuleName.TRANSFORMER,
+                ModuleName.T5,
+                ModuleName.VAE,
+            },
+            engine_dir=os.environ.get("TRT_ENGINE_DIR", "./engines"),
+            custom_onnx_paths=onnx_dir or os.environ.get("CUSTOM_ONNX_PATHS", ""),
+            trt_image_height=height,
+            trt_image_width=width,
+            trt_batch_size=1,
+            trt_timing_cache=os.getenv("TRT_TIMING_CACHE_FILE", None),
+            trt_static_batch=False,
+            trt_static_shape=False,
+        )
+
+        ae = engines[ModuleName.VAE].to(device="cpu" if offload else torch_device)
+        model = engines[ModuleName.TRANSFORMER].to(device="cpu" if offload else torch_device)
+        clip = engines[ModuleName.CLIP].to(torch_device)
+        t5 = engines[ModuleName.T5].to(device="cpu" if offload else torch_device)
 
     rng = torch.Generator(device="cpu")
     opts = SamplingOptions(
@@ -221,18 +281,22 @@ def main(
         fn = output_name.format(idx=idx)
         print(f"Done in {t1 - t0:.1f}s. Saving {fn}")
 
-        idx = save_image(nsfw_classifier, name, output_name, idx, x, add_sampling_metadata, prompt)  # 保存图片
+        idx = save_image(
+            nsfw_classifier, name, output_name, idx, x, add_sampling_metadata, prompt, track_usage=track_usage
+        )  # 保存图片
 
         if loop:
             print("-" * 80)
             opts = parse_prompt(opts)
+        elif additional_prompts:
+            next_prompt = additional_prompts.pop(0)
+            opts.prompt = next_prompt
         else:
             opts = None
 
-
-def app():
-    Fire(main)
+    if trt:
+        trt_ctx_manager.stop_runtime()
 
 
 if __name__ == "__main__":
-    app()
+    Fire(main)

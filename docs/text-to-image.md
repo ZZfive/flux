@@ -1,39 +1,44 @@
-## Models
+## Open-weight models
 
-We currently offer four text-to-image models. `FLUX1.1 [pro]` is our most capable model which can generate images at up to 4MP while maintaining an impressive generation time of only 10 seconds per sample.
+We currently offer two open-weight text-to-image models.
 
 | Name                      | HuggingFace repo                                        | License                                                               | sha256sum                                                        |
 | ------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | `FLUX.1 [schnell]`        | https://huggingface.co/black-forest-labs/FLUX.1-schnell | [apache-2.0](model_licenses/LICENSE-FLUX1-schnell)                    | 9403429e0052277ac2a87ad800adece5481eecefd9ed334e1f348723621d2a0a |
 | `FLUX.1 [dev]`            | https://huggingface.co/black-forest-labs/FLUX.1-dev     | [FLUX.1-dev Non-Commercial License](model_licenses/LICENSE-FLUX1-dev) | 4610115bb0c89560703c892c59ac2742fa821e60ef5871b33493ba544683abd7 |
-| `FLUX.1 [pro]`            | [Available in our API](https://docs.bfl.ml/).           |
-| `FLUX1.1 [pro]`           | [Available in our API](https://docs.bfl.ml/).           |
-| `FLUX1.1 [pro] Ultra/raw` | [Available in our API](https://docs.bfl.ml/).           |
 
 ## Open-weights usage
 
-The weights will be downloaded automatically from HuggingFace once you start one of the demos. To download `FLUX.1 [dev]`, you will need to be logged in, see [here](https://huggingface.co/docs/huggingface_hub/guides/cli#huggingface-cli-login).
-If you have downloaded the model weights manually, you can specify the downloaded paths via environment-variables:
-
+The weights will be downloaded automatically to `checkpoints/` from HuggingFace once you start one of the demos. Alternatively, you may download the weights manually and put them in `checkpoints/`, or you can also manually link them with the following environment variables:
 ```bash
-export FLUX_SCHNELL=<path_to_flux_schnell_sft_file>
-export FLUX_DEV=<path_to_flux_dev_sft_file>
-export AE=<path_to_ae_sft_file>
+export FLUX_MODEL=<your model path here>
+export FLUX_AE=<your autoencoder path here>
 ```
 
 For interactive sampling run
 
 ```bash
-python -m flux --name <name> --loop
+python -m flux t2i --name <name> --loop
 ```
 
-Or to generate a single sample run
+where `name` is one of `flux-dev` or `flux-schnell`. Or to generate a single sample run
 
 ```bash
-python -m flux --name <name> \
+python -m flux t2i --name <name> \
   --height <height> --width <width> \
   --prompt "<prompt>"
 ```
+
+### TRT engine infernece
+
+We provide exports in BF16, FP8, and FP4 precision. Note that you need to install the repository with TensorRT support as outlined [here](../README.md).
+
+```bash
+python -m flux t2i --name=<name> --loop --trt --trt_transformer_precision <precision>
+```
+where `<trt_transformer_precision>` is either `bf16`, `fp8`, or `fp4`. For ONNX exports, `height` and `width` have to be within 768 and 1344.
+
+### Streamlit and Gradio
 
 We also provide a streamlit demo that does both text-to-image and image-to-image. The demo can be run via
 

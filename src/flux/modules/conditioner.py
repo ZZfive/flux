@@ -34,4 +34,4 @@ class HFEmbedder(nn.Module):  # 可分别初始化clip和t5的文本编码器类
             attention_mask=None,  # 不使用注意力掩码
             output_hidden_states=False,  # 不输出隐藏状态
         )
-        return outputs[self.output_key]  # 返回输出
+        return outputs[self.output_key].bfloat16()  # 返回输出

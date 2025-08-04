@@ -290,7 +290,7 @@ class AutoEncoder(nn.Module):
             ch_mult=params.ch_mult,
             num_res_blocks=params.num_res_blocks,
             z_channels=params.z_channels,
-        )  # Uner风格的编码器
+        )  # Unet风格的编码器
         self.decoder = Decoder(
             resolution=params.resolution,
             in_channels=params.in_channels,
@@ -299,7 +299,7 @@ class AutoEncoder(nn.Module):
             ch_mult=params.ch_mult,
             num_res_blocks=params.num_res_blocks,
             z_channels=params.z_channels,
-        )  # Uner风格的解码器
+        )  # Uney风格的解码器
         self.reg = DiagonalGaussian(sample=sample_z)  # 重参数化采样层
 
         self.scale_factor = params.scale_factor  # 缩放系数

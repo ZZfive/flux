@@ -251,8 +251,8 @@ def main(
             ae = ae.cpu()
             torch.cuda.empty_cache()
             t5, clip = t5.to(torch_device), clip.to(torch_device)
-        inp = prepare(t5, clip, x, prompt=opts.prompt)
-        timesteps = get_schedule(opts.num_steps, inp["img"].shape[1], shift=(name != "flux-schnell"))
+        inp = prepare(t5, clip, x, prompt=opts.prompt)  # 准备输入
+        timesteps = get_schedule(opts.num_steps, inp["img"].shape[1], shift=(name != "flux-schnell"))  # 生成采样时间步长
 
         # offload TEs to CPU, load model to gpu
         if offload:
@@ -270,7 +270,7 @@ def main(
             ae.decoder.to(x.device)
 
         # decode latents to pixel space
-        x = unpack(x.float(), opts.height, opts.width)
+        x = unpack(x.float(), opts.height, opts.width)  # 将latent向量还原回会图像隐空间尺寸
         with torch.autocast(device_type=torch_device.type, dtype=torch.bfloat16):
             x = ae.decode(x)  # 将latent向量解码回像素空间
 

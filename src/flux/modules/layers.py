@@ -111,7 +111,7 @@ class SelfAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
 
     def forward(self, x: Tensor, pe: Tensor) -> Tensor:
-        qkv = self.qkv(x)  # 因为是自注意力，用x直接得到qkv拼接张量
+        qkv = self.qkv(x)  # 因为是自注意力，用x直接线性转换得到qkv拼接张量
         q, k, v = rearrange(qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)  # 拆分得到qkv
         q, k = self.norm(q, k, v)  # 归一化
         x = attention(q, k, v, pe=pe)  # 注意力计算
@@ -242,7 +242,7 @@ class SingleStreamBlock(nn.Module):
         # qkv and mlp_in
         self.linear1 = nn.Linear(hidden_size, hidden_size * 3 + self.mlp_hidden_dim)  # 并行线性层，qkv转换时同时将mlp输入也预测处理
         # proj and mlp_out 
-        self.linear2 = nn.Linear(hidden_size + self.mlp_hidden_dim, hidden_size)  # 并行线性层，mlp输出时同时将投影后的结果也预测处理
+        self.linear2 = nn.Linear(hidden_size + self.mlp_hidden_dim, hidden_size)  # 并行线性层，最后转换注意力计算时，直接和mlp的输出拼接一并处理
 
         self.norm = QKNorm(head_dim)
 

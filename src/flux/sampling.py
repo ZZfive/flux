@@ -35,28 +35,29 @@ def get_noise(
 
 # 常规的数据准备函数
 def prepare(t5: HFEmbedder, clip: HFEmbedder, img: Tensor, prompt: str | list[str]) -> dict[str, Tensor]:
-    bs, c, h, w = img.shape  # 此处的img对应encoder编码后的隐空间向量
+    bs, c, h, w = img.shape  # 此处的img的shape与经过vae编码后的隐向量shape相同
     if bs == 1 and not isinstance(prompt, str):
         bs = len(prompt)
-    # 图像重排和批次扩展
+    # 图像重排和批次扩展；将图像隐向量在平面维度上分割为2*2的patch，再经过展平实现长度为H/2*W/2的patches序列，即完成了图像隐向量离散序列化，每个patch的维度是C*2*2
     img = rearrange(img, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)  # [B, C, H, W] -> [B, H/2*W/2, C*2*2]
     if img.shape[0] == 1 and bs > 1:
         img = repeat(img, "1 ... -> bs ...", bs=bs)
 
-    # 生成图像多维位置ids
-    img_ids = torch.zeros(h // 2, w // 2, 3)
-    img_ids[..., 1] = img_ids[..., 1] + torch.arange(h // 2)[:, None]
-    img_ids[..., 2] = img_ids[..., 2] + torch.arange(w // 2)[None, :]
+    # 生成图像三维位置ids
+    img_ids = torch.zeros(h // 2, w // 2, 3)  # 因为将图像隐向量分割为2*2的patch，以空间角度位置编码的角度来看最后一个维度应该为2，此处为3的原因是后续会和文本位置ids拼接，在最前面添加一个区域模态的维度
+    img_ids[..., 1] = img_ids[..., 1] + torch.arange(h // 2)[:, None]  # 行索引，[0, 1, 2, ..., H/2-1]
+    img_ids[..., 2] = img_ids[..., 2] + torch.arange(w // 2)[None, :]  # 列索引，[0, 1, 2, ..., W/2-1]
+    # 将三维位置ids拉平，再补齐batch
     img_ids = repeat(img_ids, "h w c -> b (h w) c", b=bs)  # [H/2, W/2, 3] -> [B, H/2*W/2, 3]
 
     if isinstance(prompt, str):
         prompt = [prompt]
-    txt = t5(prompt)
+    txt = t5(prompt)  # t5 encoder编码后的文本嵌入
     if txt.shape[0] == 1 and bs > 1:
         txt = repeat(txt, "1 ... -> bs ...", bs=bs)
-    txt_ids = torch.zeros(bs, txt.shape[1], 3)  # 也是一个特征维度为3的位置ids，[B, T, 3]
+    txt_ids = torch.zeros(bs, txt.shape[1], 3)  # 为了能与图像的位置编码拼接，最后一个维度也是3
 
-    vec = clip(prompt)
+    vec = clip(prompt)  # clip encoder编码后的文本嵌入
     if vec.shape[0] == 1 and bs > 1:
         vec = repeat(vec, "1 ... -> bs ...", bs=bs)
 
@@ -301,7 +302,7 @@ def get_schedule(
     shift: bool = True,
 ) -> list[float]:
     # extra step for zero
-    timesteps = torch.linspace(1, 0, num_steps + 1)
+    timesteps = torch.linspace(1, 0, num_steps + 1)  # 从1到0的num_steps+1个等差数列
 
     # shifting the schedule to favor high timesteps for higher signal images
     if shift:
@@ -332,7 +333,7 @@ def denoise(
     # this is ignored for schnell
     guidance_vec = torch.full((img.shape[0],), guidance, device=img.device, dtype=img.dtype)  # 创建一个长度为batch size的一维张量，所有值都是guidance
     for t_curr, t_prev in zip(timesteps[:-1], timesteps[1:]):
-        t_vec = torch.full((img.shape[0],), t_curr, dtype=img.dtype, device=img.device)
+        t_vec = torch.full((img.shape[0],), t_curr, dtype=img.dtype, device=img.device)  # 创建一个长度为batch size的一维张量，所有值都是t_curr
         img_input = img
         img_input_ids = img_ids
         if img_cond is not None:
@@ -351,12 +352,11 @@ def denoise(
             y=vec,
             timesteps=t_vec,
             guidance=guidance_vec,
-        )
+        )  # 使用flux backbone预测flow matching范式中当前时间步的移动速度
         if img_input_ids is not None:
-            pred = pred[:, : img.shape[1]]
+            pred = pred[:, : img.shape[1]]  # 只使用前半段的图片ids序列
 
-        img = img + (t_prev - t_curr) * pred  # 因为Flux是基于rectified flow训练的，更新时就以线性更新的，即新的图像值就是当前预测值和上一步图像值得插值
-
+        img = img + (t_prev - t_curr) * pred  # flow matching范式更新时就直接以进行线性插值，即新的图像值就是当前预测值和上一步图像值的插值
     return img
 
 

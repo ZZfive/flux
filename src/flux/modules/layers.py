@@ -20,7 +20,7 @@ class EmbedND(nn.Module):
         super().__init__()
         self.dim = dim  # 位置编码总维度，等于axes_dim之和
         self.theta = theta  # RoPE旋转参数
-        self.axes_dim = axes_dim  # 每个轴的编码维度，如[32,32]表示2D位置编码,每个维度32
+        self.axes_dim = axes_dim  # 每个轴的编码维度，如[16,56,56]表示3D位置编码；所有维度之和应该和图像特征向量的维度相同
         
     def forward(self, ids: Tensor) -> Tensor:
         """前向传播
@@ -31,8 +31,8 @@ class EmbedND(nn.Module):
         返回:
             shape为[batch_size, 1, dim, 2, 2]的位置编码张量
         """
-        n_axes = ids.shape[-1]  # 获取轴数,如2表示2D位置
-        # 对每个轴应用RoPE编码并拼接
+        n_axes = ids.shape[-1]  # 获取编码维度数，如[16,56,56]表示3D位置编码，则n_axes=3
+        # 对每个轴单独应用RoPE编码，然后拼接到一起
         emb = torch.cat(
             [rope(ids[..., i], self.axes_dim[i], self.theta) for i in range(n_axes)],
             dim=-3,

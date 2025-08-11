@@ -67,9 +67,9 @@ class ReduxImageEncoder(nn.Module):
     def __init__(
         self,
         device,
-        redux_path: str,
-        redux_dim: int = 1152,
-        txt_in_features: int = 4096,
+        redux_path: str,  # redux模型路径
+        redux_dim: int = 1152,  # 与Siglip的视觉编码器输出维度相同
+        txt_in_features: int = 4096,  # 与t5的输出维度相同
         dtype=torch.bfloat16,
     ) -> None:
         super().__init__()
@@ -94,6 +94,6 @@ class ReduxImageEncoder(nn.Module):
 
         _encoded_x = self.siglip(**imgs.to(device=self.device, dtype=self.dtype)).last_hidden_state  # 图像编码
 
-        projected_x = self.redux_down(nn.functional.silu(self.redux_up(_encoded_x)))  # 先升维，再激活，再降维
+        projected_x = self.redux_down(nn.functional.silu(self.redux_up(_encoded_x)))  # 投影；先升维，再激活，再降维
 
         return projected_x

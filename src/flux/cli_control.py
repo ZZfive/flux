@@ -211,7 +211,7 @@ def main(
         "flux-dev-depth-lora",
     ], f"Got unknown model name: {name}"
 
-    if guidance is None:
+    if guidance is None:  # 不同方式的默认guidance值不同
         if name in ["flux-dev-canny", "flux-dev-canny-lora"]:
             guidance = 30.0
         elif name in ["flux-dev-depth", "flux-dev-depth-lora"]:

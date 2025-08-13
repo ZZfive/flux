@@ -19,7 +19,7 @@ def attention(q: Tensor, k: Tensor, v: Tensor, pe: Tensor) -> Tensor:
     return x  # [batch, seq_len, heads*head_dim]
 
 
-def rope(pos: Tensor, dim: int, theta: int) -> Tensor:
+def rope(pos: Tensor, dim: int, theta: int) -> Tensor:  # pos的shape为[batch, seq_len]
     assert dim % 2 == 0
     # 计算每个位置的频率缩放因子；先生成序列 [0, 2, 4, ..., dim-2]，然后除以 dim，得到得到 [0, 2/dim, 4/dim, ..., (dim-2)/dim]
     scale = torch.arange(0, dim, 2, dtype=pos.dtype, device=pos.device) / dim

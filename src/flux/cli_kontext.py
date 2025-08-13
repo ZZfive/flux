@@ -327,10 +327,10 @@ def main(
             ae.decoder.to(x.device)
 
         # decode latents to pixel space
-        x = unpack(x.float(), height, width)
+        x = unpack(x.float(), height, width)  # 只对height、width对应的前一部分tokens序列进行反序列化回vae的隐空间
         with torch.autocast(device_type=torch_device.type, dtype=torch.bfloat16):
             ae_dev_t0 = time.perf_counter()
-            x = ae.decode(x)
+            x = ae.decode(x)  # 将latent向量解码回像素空间
             torch.cuda.synchronize()
             ae_dev_t1 = time.perf_counter()
             print(f"AE decode took {ae_dev_t1 - ae_dev_t0:.3f}s")

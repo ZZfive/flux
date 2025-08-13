@@ -38,7 +38,7 @@ class EmbedND(nn.Module):
             dim=-3,
         )  # 每个轴的编码在-3维度上拼接，因为最后两个维度是旋转矩阵
         # 增加head维度
-        return emb.unsqueeze(1)  # [B, 1, D, 2, 2]，D为总编码维度，2x2为RoPE的旋转矩阵
+        return emb.unsqueeze(1)  # [B, 1, seq_len, dim//2, 2, 2]，dim为总编码维度，2x2为RoPE的旋转矩阵
 
 
 def timestep_embedding(t: Tensor, dim, max_period=10000, time_factor: float = 1000.0):

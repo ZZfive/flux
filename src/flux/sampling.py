@@ -44,7 +44,7 @@ def prepare(t5: HFEmbedder, clip: HFEmbedder, img: Tensor, prompt: str | list[st
         img = repeat(img, "1 ... -> bs ...", bs=bs)
 
     # 生成图像三维位置ids
-    img_ids = torch.zeros(h // 2, w // 2, 3)  # 因为将图像隐向量分割为2*2的patch，以空间角度位置编码的角度来看最后一个维度应该为2，此处为3的原因是后续会和文本位置ids拼接，在最前面添加一个区域模态的维度
+    img_ids = torch.zeros(h // 2, w // 2, 3)  # 因为将图像隐向量分割为2*2的patch，最后一个维度为3的原因是构建的是3D位置编码，每个token通过对应的时空坐标(t,h,w)表示位置，当前时间维度全部设置为0是因为是图像任务，如果为视频生成任务，则会设置图片帧对应的时间步
     img_ids[..., 1] = img_ids[..., 1] + torch.arange(h // 2)[:, None]  # 行索引，[0, 1, 2, ..., H/2-1]
     img_ids[..., 2] = img_ids[..., 2] + torch.arange(w // 2)[None, :]  # 列索引，[0, 1, 2, ..., W/2-1]
     # 将三维位置ids拉平，再补齐batch
@@ -233,19 +233,19 @@ def prepare_kontext(
     img_cond = Image.open(img_cond_path).convert("RGB")
     width, height = img_cond.size
     aspect_ratio = width / height
-    # Kontext is trained on specific resolutions, using one of them is recommended
+    # Kontext is trained on specific resolutions, using one of them is recommended  Kontext是在特定分辨率上训练的，推荐使用其中之一
     _, width, height = min((abs(aspect_ratio - w / h), w, h) for w, h in PREFERED_KONTEXT_RESOLUTIONS)
     width = 2 * int(width / 16)
     height = 2 * int(height / 16)
 
-    img_cond = img_cond.resize((8 * width, 8 * height), Image.Resampling.LANCZOS)
+    img_cond = img_cond.resize((8 * width, 8 * height), Image.Resampling.LANCZOS)  # 将控制图像缩放到与符合vae的encoder编码的尺寸，设置的尺寸为8倍
     img_cond = np.array(img_cond)
     img_cond = torch.from_numpy(img_cond).float() / 127.5 - 1.0
     img_cond = rearrange(img_cond, "h w c -> 1 c h w")
-    img_cond_orig = img_cond.clone()
+    img_cond_orig = img_cond.clone()  # 保存原始的控制图像
 
     with torch.no_grad():
-        img_cond = ae.encode(img_cond.to(device))
+        img_cond = ae.encode(img_cond.to(device))  # 对控制图像进行编码，得到控制图像隐向量
 
     img_cond = img_cond.to(torch.bfloat16)
     img_cond = rearrange(img_cond, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)
@@ -255,15 +255,15 @@ def prepare_kontext(
     # image ids are the same as base image with the first dimension set to 1
     # instead of 0
     img_cond_ids = torch.zeros(height // 2, width // 2, 3)
-    img_cond_ids[..., 0] = 1
+    img_cond_ids[..., 0] = 1  # 与prepare为image构建的img_ids不同，此处设置为1，表表示一个虚拟的时间步
     img_cond_ids[..., 1] = img_cond_ids[..., 1] + torch.arange(height // 2)[:, None]
     img_cond_ids[..., 2] = img_cond_ids[..., 2] + torch.arange(width // 2)[None, :]
     img_cond_ids = repeat(img_cond_ids, "h w c -> b (h w) c", b=bs)
 
     if target_width is None:
-        target_width = 8 * width
+        target_width = 8 * width  # 如果target_width未指定，则设置为8倍宽度
     if target_height is None:
-        target_height = 8 * height
+        target_height = 8 * height  # 如果target_height未指定，则设置为8倍高度
 
     img = get_noise(
         1,
@@ -272,7 +272,7 @@ def prepare_kontext(
         device=device,
         dtype=torch.bfloat16,
         seed=seed,
-    )
+    )  # 生成一个纯噪声图像隐向量，是在vae编码的隐空间中
 
     return_dict = prepare(t5, clip, img, prompt)
     return_dict["img_cond_seq"] = img_cond
@@ -342,8 +342,8 @@ def denoise(
             assert (
                 img_cond_seq_ids is not None
             ), "You need to provide either both or neither of the sequence conditioning"
-            img_input = torch.cat((img_input, img_cond_seq), dim=1)
-            img_input_ids = torch.cat((img_input_ids, img_cond_seq_ids), dim=1)
+            img_input = torch.cat((img_input, img_cond_seq), dim=1)  # 将噪声图像和上下文图片在长度维度上拼接
+            img_input_ids = torch.cat((img_input_ids, img_cond_seq_ids), dim=1)  # 需要将对应的位置编码也拼接起来
         pred = model(
             img=img_input,
             img_ids=img_input_ids,
